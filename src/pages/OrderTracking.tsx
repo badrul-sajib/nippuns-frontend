@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Package, Truck, CheckCircle2, Clock, MapPin, Phone, ArrowLeft, Search, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { useOrders, OrderStatus } from "@/contexts/OrderContext";
+import { useOrders, OrderStatus, Order } from "@/contexts/OrderContext";
 
 const statusSteps: { key: OrderStatus; label: string; icon: typeof Package }[] = [
   { key: "confirmed", label: "Order Confirmed", icon: CheckCircle2 },
@@ -19,10 +19,23 @@ const statusIndex = (s: OrderStatus) => statusSteps.findIndex((st) => st.key ===
 const OrderTracking = () => {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
-  const { orders, getOrder } = useOrders();
+  const { orders, getOrder, fetchOrderByNumber } = useOrders();
   const [searchId, setSearchId] = useState("");
+  const [fetchedOrder, setFetchedOrder] = useState<Order | null>(null);
+  const [loadingOrder, setLoadingOrder] = useState(false);
 
-  const order = id ? getOrder(id) : null;
+  // Look up order: prefer the local cache, otherwise hit the API
+  useEffect(() => {
+    if (!id) { setFetchedOrder(null); return; }
+    const local = getOrder(id);
+    if (local) { setFetchedOrder(local); return; }
+    setLoadingOrder(true);
+    fetchOrderByNumber(id)
+      .then((o) => setFetchedOrder(o))
+      .finally(() => setLoadingOrder(false));
+  }, [id, getOrder, fetchOrderByNumber]);
+
+  const order = fetchedOrder;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,6 +171,11 @@ const OrderTracking = () => {
                 </div>
               </div>
             </div>
+          </div>
+        ) : id && loadingOrder ? (
+          <div className="text-center py-16">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+            <p className="mt-4 text-sm text-muted-foreground">Loading order…</p>
           </div>
         ) : id ? (
           <div className="text-center py-16">

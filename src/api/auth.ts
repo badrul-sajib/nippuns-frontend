@@ -1,7 +1,8 @@
 import api from './client';
-export const login = (email: string, password: string) =>
-  api.post('/auth/login', { email, password }).then(r => r.data);
-export const register = (data: { name: string; email: string; phone: string; password: string; password_confirmation: string }) =>
+// Backend accepts phone OR email as the login identifier under the `phone` field
+export const login = (identifier: string, password: string) =>
+  api.post('/auth/login', { phone: identifier, password }).then(r => r.data);
+export const register = (data: { name: string; email?: string; phone: string; password: string; password_confirmation: string }) =>
   api.post('/auth/register', data).then(r => r.data);
 export const logout = () => api.post('/auth/logout').then(r => r.data);
 export const getUser = () => api.get('/auth/user').then(r => r.data);

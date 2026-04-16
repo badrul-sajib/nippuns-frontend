@@ -9,12 +9,20 @@ interface User {
   phone?: string;
 }
 
+interface RegisterPayload {
+  name: string;
+  phone: string;
+  password: string;
+  password_confirmation: string;
+  email?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: any) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (data: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -39,15 +47,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const data = await apiLogin(email, password);
+  const login = async (identifier: string, password: string) => {
+    const data = await apiLogin(identifier, password);
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(data.user));
     setUser(data.user);
     toast.success(`Welcome back, ${data.user.name}!`);
   };
 
-  const register = async (formData: any) => {
+  const register = async (formData: RegisterPayload) => {
     const data = await apiRegister(formData);
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(data.user));

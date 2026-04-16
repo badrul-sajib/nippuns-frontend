@@ -1,12 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search as SearchIcon, SlidersHorizontal, X } from "lucide-react";
-import { searchProducts as searchProductsFn } from "@/data/products";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
-import { searchProducts, allCategories } from "@/data/products";
+import { searchProducts as apiSearchProducts } from "@/api/products";
+import { fetchCategories } from "@/api/categories";
+import type { Product, Category } from "@/types/product";
 
 
 const sortOptions = [
@@ -38,16 +39,65 @@ const SearchPage = () => {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
 
+  const [results, setResults] = useState<Product[]>([]);
+  const [ajaxResults, setAjaxResults] = useState<Product[]>([]);
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [loadingResults, setLoadingResults] = useState(false);
+
   // Debounce for ajax dropdown
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 250);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const ajaxResults = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    return searchProductsFn(debouncedQuery).slice(0, 6);
+  // Fetch categories on mount
+  useEffect(() => {
+    let cancelled = false;
+    fetchCategories()
+      .then((data) => {
+        if (cancelled) return;
+        const items: Category[] = data?.data || data || [];
+        setAllCategories(items.map((c) => c.name).filter(Boolean));
+      })
+      .catch(() => setAllCategories([]));
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch ajax dropdown results
+  useEffect(() => {
+    let cancelled = false;
+    if (!debouncedQuery.trim()) {
+      setAjaxResults([]);
+      return;
+    }
+    apiSearchProducts(debouncedQuery)
+      .then((data) => {
+        if (cancelled) return;
+        const items: Product[] = data?.data || data || [];
+        setAjaxResults(items.slice(0, 6));
+      })
+      .catch(() => setAjaxResults([]));
+    return () => { cancelled = true; };
   }, [debouncedQuery]);
+
+  // Fetch full search results
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingResults(true);
+    apiSearchProducts(
+      query,
+      activeCategory !== "All" ? activeCategory : undefined,
+      sortBy !== "relevance" ? sortBy : undefined
+    )
+      .then((data) => {
+        if (cancelled) return;
+        const items: Product[] = data?.data || data || [];
+        setResults(items);
+      })
+      .catch(() => setResults([]))
+      .finally(() => { if (!cancelled) setLoadingResults(false); });
+    return () => { cancelled = true; };
+  }, [query, activeCategory, sortBy]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -59,11 +109,6 @@ const SearchPage = () => {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
-
-  const results = useMemo(
-    () => searchProducts(query, activeCategory, sortBy),
-    [query, activeCategory, sortBy]
-  );
 
   const updateParams = (q: string, cat: string) => {
     const params: Record<string, string> = {};
@@ -137,7 +182,7 @@ const SearchPage = () => {
                             onClick={() => setShowDropdown(false)}
                           >
                             <img
-                              src={product.images[0]}
+                              src={product.images?.[0]}
                               alt={product.name}
                               className="h-10 w-10 rounded-lg object-cover bg-muted"
                             />
@@ -275,9 +320,9 @@ const SearchPage = () => {
                 price={p.price}
                 originalPrice={p.originalPrice}
                 rating={p.rating}
-                reviews={p.reviews}
+                reviews={p.reviews || (p as any).reviewCount || 0}
                 color="bg-muted/30"
-                image={p.images[0]}
+                image={p.images?.[0]}
                 productId={p.id}
               />
             ))}

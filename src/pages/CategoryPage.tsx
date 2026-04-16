@@ -8,20 +8,6 @@ import { fetchCategoryProducts } from "@/api/categories";
 import type { Product } from "@/types/product";
 import { toast } from "sonner";
 
-const categoryMeta: Record<string, { title: string; description: string }> = {
-  "Ladies Bag": { title: "Ladies Bag", description: "Explore our elegant collection of ladies bags — from totes to clutches, designed to complement every outfit." },
-  "Travel Bag": { title: "Travel Bag", description: "Durable & stylish travel bags for your next adventure. Built to carry everything you need." },
-  "Men's Bag": { title: "Men's Bag", description: "Premium men's bags — backpacks, briefcases, and messenger bags for every occasion." },
-  "Gym Bag": { title: "Gym Bag", description: "Spacious and sturdy gym bags to carry your workout essentials in style." },
-  "Baby Bag": { title: "Baby Bag", description: "Functional and fashionable baby bags for parents on the go." },
-  "School Bag": { title: "School Bag", description: "Comfortable and colorful school bags for kids and students." },
-  "Jewelry & Watches": { title: "Jewelry & Watches", description: "Discover stunning jewellery and watches to elevate your look." },
-  Jewellery: { title: "Jewellery", description: "Discover stunning jewellery pieces to elevate your look." },
-  Umbrella: { title: "Umbrella", description: "Stay dry in style with our premium umbrella collection." },
-  "Prayer Matt": { title: "Prayer Matt", description: "Beautiful prayer matts crafted with care and comfort." },
-  New: { title: "New Arrivals", description: "Check out the latest additions to our collection." },
-};
-
 const sortOptions = [
   { value: "default", label: "Default" },
   { value: "price-low", label: "Price: Low to High" },
@@ -49,9 +35,9 @@ const SkeletonCard = () => (
 
 const CategoryPage = () => {
   const { slug } = useParams<{ slug: string }>();
-  const category = decodeURIComponent(slug || "");
 
   const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [categoryName, setCategoryName] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   const [sortBy, setSortBy] = useState("default");
@@ -59,10 +45,11 @@ const CategoryPage = () => {
   const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
 
-  const meta = categoryMeta[category] || {
-    title: category,
-    description: `Browse our ${category} collection.`,
-  };
+  // Title falls back to a humanised slug while the API request is in-flight
+  const meta = useMemo(() => {
+    const title = categoryName || (slug ? slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "Products");
+    return { title, description: `Browse our ${title} collection.` };
+  }, [categoryName, slug]);
 
   const hasActiveFilters = selectedPrice !== null || selectedRating !== null;
 
@@ -80,8 +67,9 @@ const CategoryPage = () => {
     setLoading(true);
     fetchCategoryProducts(slug, { sort: sortParam })
       .then((data) => {
-        const items = data.data || data || [];
-        setAllProducts(items);
+        const items = data?.data || [];
+        setAllProducts(Array.isArray(items) ? items : []);
+        if (data?.category?.name) setCategoryName(data.category.name);
       })
       .catch(() => {
         toast.error("Failed to load products");

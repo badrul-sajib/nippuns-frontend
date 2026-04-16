@@ -2,34 +2,48 @@ import { Search, Heart, ShoppingCart, User, Menu, Package, LogOut } from "lucide
 import logoImg from "@/assets/Logo.png";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useCart } from "@/contexts/CartContext";
 import { useWishlist } from "@/contexts/WishlistContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSettings } from "@/contexts/SettingsContext";
 
-import { searchProducts, type Product } from "@/data/products";
-
-const categories = [
-  "New", "Ladies Bag", "Travel Bag", "Men's Bag", "Gym Bag",
-  "Baby Bag", "School Bag", "Jewelry & Watches", "Umbrella", "Prayer Matt"
-];
+import { searchProducts as apiSearchProducts } from "@/api/products";
+import { fetchCategories } from "@/api/categories";
+import type { Product, Category } from "@/types/product";
 
 const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [activeCategory, setActiveCategory] = useState(() => {
     const match = location.pathname.match(/^\/category\/(.+)/);
     return match ? decodeURIComponent(match[1]) : "";
   });
-  
+
+  // Fetch categories from API
+  useEffect(() => {
+    let cancelled = false;
+    fetchCategories()
+      .then((data) => {
+        if (cancelled) return;
+        const items: Category[] = data?.data || data || [];
+        setCategories(items.filter((c) => (c.products_count ?? (c as any).productCount ?? 1) > 0));
+      })
+      .catch(() => setCategories([]));
+    return () => { cancelled = true; };
+  }, []);
+
   // Sync active category from URL
   useEffect(() => {
     const match = location.pathname.match(/^\/category\/(.+)/);
     setActiveCategory(match ? decodeURIComponent(match[1]) : "");
   }, [location.pathname]);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { isAuthenticated: isLoggedIn, logout } = useAuth();
+  const { settings } = useSettings();
   const { totalItems, setIsOpen } = useCart();
   const { totalItems: wishlistCount } = useWishlist();
   const searchRef = useRef<HTMLDivElement>(null);
@@ -41,9 +55,22 @@ const Header = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const searchResults = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    return searchProducts(debouncedQuery).slice(0, 6);
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!debouncedQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    apiSearchProducts(debouncedQuery)
+      .then((data) => {
+        if (cancelled) return;
+        const items: Product[] = data?.data || data || [];
+        setSearchResults(items.slice(0, 6));
+      })
+      .catch(() => setSearchResults([]));
+    return () => { cancelled = true; };
   }, [debouncedQuery]);
 
   // Close dropdown on outside click
@@ -57,8 +84,8 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Auth will be handled by Laravel backend later
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
 
@@ -70,7 +97,7 @@ const Header = () => {
           {/* Left: Logo */}
           <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <Link to="/" className="flex items-center flex-shrink-0">
-              <img src={logoImg} alt="Nipun's Gallery" className="h-8 sm:h-10 w-auto" />
+              <img src={settings.site_logo || logoImg} alt={settings.site_name} className="h-8 sm:h-10 w-auto" />
             </Link>
           </div>
 
@@ -116,7 +143,7 @@ const Header = () => {
                               onClick={() => setShowDropdown(false)}
                             >
                               <img
-                                src={product.images[0]}
+                                src={product.images?.[0]}
                                 alt={product.name}
                                 className="h-10 w-10 rounded-lg object-cover bg-muted"
                               />
@@ -186,23 +213,26 @@ const Header = () => {
       <nav className="border-b border-border/60 bg-background">
         <div className="container mx-auto px-3 sm:px-6">
           <ul className="flex items-center md:justify-center overflow-x-auto scrollbar-hide gap-0">
-            {categories.map((cat) => (
-              <li key={cat} className="flex-shrink-0">
-                <button
-                  onClick={() => { setActiveCategory(cat); navigate(`/category/${encodeURIComponent(cat)}`); }}
-                  className={`relative whitespace-nowrap px-4 md:px-5 py-2.5 md:py-3 text-[12px] md:text-[13px] font-medium transition-all duration-300 ${
-                    activeCategory === cat
-                      ? "text-primary scale-105"
-                      : "text-foreground/60 hover:text-foreground hover:scale-105"
-                  }`}
-                >
-                  {cat}
-                  <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-[2.5px] rounded-full bg-primary transition-all duration-300 ${
-                    activeCategory === cat ? "w-full scale-x-100 origin-center" : "w-full scale-x-0 origin-center"
-                  }`} />
-                </button>
-              </li>
-            ))}
+            {categories.map((cat) => {
+              const isActive = activeCategory === cat.slug;
+              return (
+                <li key={cat.id} className="flex-shrink-0">
+                  <button
+                    onClick={() => { setActiveCategory(cat.slug); navigate(`/category/${cat.slug}`); }}
+                    className={`relative whitespace-nowrap px-4 md:px-5 py-2.5 md:py-3 text-[12px] md:text-[13px] font-medium transition-all duration-300 ${
+                      isActive
+                        ? "text-primary scale-105"
+                        : "text-foreground/60 hover:text-foreground hover:scale-105"
+                    }`}
+                  >
+                    {cat.name}
+                    <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-[2.5px] rounded-full bg-primary transition-all duration-300 ${
+                      isActive ? "w-full scale-x-100 origin-center" : "w-full scale-x-0 origin-center"
+                    }`} />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </nav>

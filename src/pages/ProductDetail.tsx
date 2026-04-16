@@ -9,7 +9,7 @@ import { useWishlist } from "@/contexts/WishlistContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
-import { fetchProduct, fetchProducts } from "@/api/products";
+import { fetchProduct } from "@/api/products";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import type { Product } from "@/types/product";
 
@@ -60,11 +60,20 @@ const ProductDetail = () => {
     setNotFound(false);
     fetchProduct(id)
       .then((data) => {
-        const p = data.data || data;
+        const p = data.product || data.data || data;
+        if (!p?.id) {
+          setNotFound(true);
+          return;
+        }
         setProduct(p);
         setSelectedImage(0);
         setSelectedColor(0);
         setSelectedSize(0);
+
+        // Use related products from the same response if available
+        if (Array.isArray(data.related)) {
+          setRelatedProducts(data.related.slice(0, 4));
+        }
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -73,17 +82,6 @@ const ProductDetail = () => {
   // Track recently viewed
   useEffect(() => {
     if (product) addViewed(product.id);
-  }, [product?.id]);
-
-  // Fetch related products from same category
-  useEffect(() => {
-    if (!product) return;
-    fetchProducts({ category: product.categorySlug || product.category, page: 1 })
-      .then((data) => {
-        const items: Product[] = data.data || data || [];
-        setRelatedProducts(items.filter((p) => p.id !== product.id).slice(0, 4));
-      })
-      .catch(() => setRelatedProducts([]));
   }, [product?.id]);
 
   if (loading) {

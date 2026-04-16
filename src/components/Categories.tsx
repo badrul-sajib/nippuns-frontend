@@ -1,7 +1,9 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import ShimmerImage from "@/components/ShimmerImage";
+import { fetchCategories } from "@/api/categories";
+import type { Category } from "@/types/product";
 
 import catLadiesBag from "@/assets/cat-ladies-bag.png";
 import catTravelBag from "@/assets/cat-travel-bag.png";
@@ -12,20 +14,36 @@ import catJewellery from "@/assets/cat-jewellery.png";
 import catUmbrella from "@/assets/cat-umbrella.png";
 import catPrayerMat from "@/assets/cat-prayer-mat.png";
 
-const categories = [
-  { name: "Ladies Bag", image: catLadiesBag },
-  { name: "Travel Bag", image: catTravelBag },
-  { name: "Men's Bag", image: catMensBag },
-  { name: "Gym Bag", image: catGymBag },
-  { name: "School Bag", image: catSchoolBag },
-  { name: "Jewelry & Watches", image: catJewellery },
-  { name: "Umbrella", image: catUmbrella },
-  { name: "Prayer Matt", image: catPrayerMat },
-];
+// Fallback images mapped by category slug
+const slugImages: Record<string, string> = {
+  "ladies-bag": catLadiesBag,
+  "travel-bag": catTravelBag,
+  "mens-bag": catMensBag,
+  "gym-bag": catGymBag,
+  "school-bag": catSchoolBag,
+  "jewelry-watches": catJewellery,
+  "umbrella": catUmbrella,
+  "prayer-mat": catPrayerMat,
+  "baby-bag": catLadiesBag,
+};
 
 const Categories = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCategories()
+      .then((data) => {
+        if (cancelled) return;
+        const items: Category[] = data?.data || data || [];
+        // Hide empty categories like "Live Gallery" with 0 products
+        setCategories(items.filter((c) => (c.products_count ?? (c as any).productCount ?? 1) > 0));
+      })
+      .catch(() => setCategories([]));
+    return () => { cancelled = true; };
+  }, []);
 
   const scroll = (dir: "left" | "right") => {
     if (scrollRef.current) {
@@ -45,25 +63,28 @@ const Categories = () => {
         </button>
 
         <div ref={scrollRef} className="flex gap-3 sm:gap-4 overflow-x-auto px-6 sm:px-8 pb-2 scrollbar-hide" style={{ scrollbarWidth: "none" }}>
-          {categories.map((cat) => (
-            <button
-              key={cat.name}
-              onClick={() => navigate(`/category/${encodeURIComponent(cat.name)}`)}
-              className="group flex min-w-[110px] sm:min-w-[145px] flex-col items-center justify-center gap-2 sm:gap-3 rounded-xl sm:rounded-2xl p-3 sm:p-5 transition-all duration-200 border-2 border-transparent bg-muted/50 hover:bg-accent hover:shadow-sm hover:border-dashed hover:border-primary"
-            >
-              <div className="flex h-12 w-12 sm:h-16 sm:w-16 items-center justify-center">
-                <ShimmerImage
-                  src={cat.image}
-                  alt={cat.name}
-                  className="h-10 w-10 sm:h-14 sm:w-14 object-contain transition-transform duration-200 group-hover:scale-110 rounded-lg"
-                  shimmerClassName="h-10 w-10 sm:h-14 sm:w-14 rounded-lg"
-                  loading="eager"
-                  decoding="async"
-                />
-              </div>
-              <span className="text-center text-xs font-medium text-foreground">{cat.name}</span>
-            </button>
-          ))}
+          {categories.map((cat) => {
+            const img = cat.image || slugImages[cat.slug] || catLadiesBag;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => navigate(`/category/${cat.slug}`)}
+                className="group flex min-w-[110px] sm:min-w-[145px] flex-col items-center justify-center gap-2 sm:gap-3 rounded-xl sm:rounded-2xl p-3 sm:p-5 transition-all duration-200 border-2 border-transparent bg-muted/50 hover:bg-accent hover:shadow-sm hover:border-dashed hover:border-primary"
+              >
+                <div className="flex h-12 w-12 sm:h-16 sm:w-16 items-center justify-center">
+                  <ShimmerImage
+                    src={img}
+                    alt={cat.name}
+                    className="h-10 w-10 sm:h-14 sm:w-14 object-contain transition-transform duration-200 group-hover:scale-110 rounded-lg"
+                    shimmerClassName="h-10 w-10 sm:h-14 sm:w-14 rounded-lg"
+                    loading="eager"
+                    decoding="async"
+                  />
+                </div>
+                <span className="text-center text-xs font-medium text-foreground">{cat.name}</span>
+              </button>
+            );
+          })}
         </div>
 
         <button

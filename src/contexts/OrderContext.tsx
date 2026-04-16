@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
-import { placeOrder as apiPlaceOrder, fetchOrders as apiFetchOrders } from "@/api/orders";
+import { placeOrder as apiPlaceOrder, fetchOrders as apiFetchOrders, fetchOrder as apiFetchOrder } from "@/api/orders";
 
 export interface OrderItem {
   id: string;
@@ -33,6 +33,7 @@ interface OrderContextType {
   orders: Order[];
   addOrder: (order: Omit<Order, "id" | "status" | "createdAt" | "estimatedDelivery">, apiPayload?: any) => Promise<string>;
   getOrder: (id: string) => Order | undefined;
+  fetchOrderByNumber: (orderNumber: string) => Promise<Order | null>;
   loading: boolean;
   refreshOrders: () => Promise<void>;
 }
@@ -134,42 +135,45 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     orderData: Omit<Order, "id" | "status" | "createdAt" | "estimatedDelivery">,
     apiPayload?: any
   ) => {
-    if (isLoggedIn() && apiPayload) {
-      try {
-        setLoading(true);
-        const response = await apiPlaceOrder(apiPayload);
-        const apiOrder = response.data || response.order || response;
-        const normalized = normalizeApiOrder(apiOrder);
-        setOrders((prev) => [normalized, ...prev]);
-        return normalized.id;
-      } catch (err: any) {
-        // Fall through to local order if API fails
-        const errMsg = err?.response?.data?.message || "Failed to place order via API";
-        throw new Error(errMsg);
-      } finally {
-        setLoading(false);
-      }
+    if (!apiPayload) throw new Error("Missing order payload");
+    try {
+      setLoading(true);
+      const response = await apiPlaceOrder(apiPayload);
+      const apiOrder = response.data || response.order || response;
+      const normalized = normalizeApiOrder(apiOrder);
+      setOrders((prev) => [normalized, ...prev]);
+      return normalized.id;
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || "Failed to place order. Please try again.";
+      throw new Error(errMsg);
+    } finally {
+      setLoading(false);
     }
-
-    // Guest / offline fallback: create local order
-    const id = `ORD-${Date.now().toString(36).toUpperCase()}`;
-    const order: Order = {
-      ...orderData,
-      id,
-      status: "confirmed",
-      createdAt: new Date().toISOString(),
-      estimatedDelivery: getEstimatedDelivery(orderData.deliveryZone),
-    };
-    setOrders((prev) => [order, ...prev]);
-    return id;
   }, []);
 
   const getOrder = useCallback((id: string) => {
     return orders.find((o) => o.id === id);
   }, [orders]);
 
+  const fetchOrderByNumber = useCallback(async (orderNumber: string): Promise<Order | null> => {
+    try {
+      const res = await apiFetchOrder(orderNumber);
+      const apiOrder = res?.data || res;
+      if (!apiOrder?.id && !apiOrder?.order_number) return null;
+      const normalized = normalizeApiOrder(apiOrder);
+      // Cache it locally so subsequent reads are instant
+      setOrders((prev) => {
+        if (prev.some((o) => o.id === normalized.id)) return prev;
+        return [normalized, ...prev];
+      });
+      return normalized;
+    } catch {
+      return null;
+    }
+  }, []);
+
   return (
-    <OrderContext.Provider value={{ orders, addOrder, getOrder, loading, refreshOrders }}>
+    <OrderContext.Provider value={{ orders, addOrder, getOrder, fetchOrderByNumber, loading, refreshOrders }}>
       {children}
     </OrderContext.Provider>
   );

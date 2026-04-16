@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Timer, ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import ProductCard from "./ProductCard";
-import { products as staticProducts } from "@/data/products";
+import { useSettings } from "@/contexts/SettingsContext";
 import type { Product } from "@/types/product";
 
 interface DealOfTheDayProps {
@@ -20,12 +20,9 @@ const SkeletonCard = () => (
 
 const DealOfTheDay = ({ products: apiProducts, loading = false }: DealOfTheDayProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
 
-  const allProducts: Product[] = (apiProducts && apiProducts.length > 0)
-    ? apiProducts
-    : (staticProducts as unknown as Product[]);
-
-  const products = allProducts.slice(0, 16);
+  const products = (apiProducts || []).slice(0, 16);
 
   const categories = ["All", ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
   const [active, setActive] = useState("All");
@@ -45,8 +42,8 @@ const DealOfTheDay = ({ products: apiProducts, loading = false }: DealOfTheDayPr
               <Timer className="h-4 w-4 sm:h-5 sm:w-5 text-primary-foreground" />
             </div>
             <div>
-              <h2 className="text-sm sm:text-lg font-bold text-foreground">Shop From Deal Of The Day</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Choose Your Style, According To Your Comfy</p>
+              <h2 className="text-sm sm:text-lg font-bold text-foreground">{settings.section_deal_of_the_day_title}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{settings.section_deal_of_the_day_subtitle}</p>
             </div>
           </div>
           <Link to="/category/deals" className="flex items-center gap-1 rounded-full border border-border px-4 py-1.5 text-xs font-medium text-foreground/70 hover:border-primary/40 hover:text-primary transition-all">
@@ -88,7 +85,7 @@ const DealOfTheDay = ({ products: apiProducts, loading = false }: DealOfTheDayPr
                   rating={p.rating}
                   reviews={p.reviews || (p as any).reviewCount || 0}
                   color="bg-amber-50/60"
-                  image={p.images[0]}
+                  image={p.images?.[0]}
                   productId={p.id}
                   showBuyNow
                 />

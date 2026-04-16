@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import ProductCard from "./ProductCard";
-import { products as staticProducts } from "@/data/products";
+import { useSettings } from "@/contexts/SettingsContext";
 import type { Product } from "@/types/product";
 
 interface BestSellerProps {
@@ -20,13 +20,9 @@ const SkeletonCard = () => (
 
 const BestSeller = ({ products: apiProducts, loading = false }: BestSellerProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
 
-  // Use API products if provided and non-empty, otherwise fall back to static
-  const allProducts: Product[] = (apiProducts && apiProducts.length > 0)
-    ? apiProducts
-    : (staticProducts as unknown as Product[]);
-
-  const products = allProducts.slice(0, 10);
+  const products = (apiProducts || []).slice(0, 10);
 
   const categories = ["All", ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
   const [activeTab, setActiveTab] = useState("All");
@@ -41,7 +37,7 @@ const BestSeller = ({ products: apiProducts, loading = false }: BestSellerProps)
     <section className="container mx-auto px-3 sm:px-4 py-6 sm:py-10">
       <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-3 sm:gap-4">
-          <h2 className="text-sm sm:text-lg font-bold text-foreground">Best Seller</h2>
+          <h2 className="text-sm sm:text-lg font-bold text-foreground">{settings.section_best_seller_title}</h2>
           <Link to="/category/best-seller" className="flex items-center gap-1 rounded-full border border-border px-3 sm:px-4 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-foreground/70 hover:border-primary/40 hover:text-primary transition-all">
             View All <ArrowRight className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           </Link>
@@ -80,7 +76,7 @@ const BestSeller = ({ products: apiProducts, loading = false }: BestSellerProps)
                 rating={p.rating}
                 reviews={p.reviews || (p as any).reviewCount || 0}
                 color="bg-purple-50/60"
-                image={p.images[0]}
+                image={p.images?.[0]}
                 productId={p.id}
                 showBuyNow
               />

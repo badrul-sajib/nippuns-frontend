@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useSettings } from "@/contexts/SettingsContext";
 
 const WhatsAppButton = () => {
   const [showTooltip, setShowTooltip] = useState(true);
-  const phoneNumber = "8801XXXXXXXXX"; // Replace with actual number
-  const message = encodeURIComponent("Hi! I need help with my order from Nipun's Gallery.");
+  const { settings } = useSettings();
+
+  const phoneNumber = (settings.whatsapp_number || "").replace(/[^0-9]/g, "");
+  if (!phoneNumber) return null;
+
+  const message = encodeURIComponent(settings.whatsapp_message || "");
   const url = `https://wa.me/${phoneNumber}?text=${message}`;
 
   return (

@@ -7,6 +7,7 @@ import { CartProvider } from "@/contexts/CartContext";
 import { WishlistProvider } from "@/contexts/WishlistContext";
 import { OrderProvider } from "@/contexts/OrderContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { SettingsProvider } from "@/contexts/SettingsContext";
 import CartDrawer from "@/components/CartDrawer";
 import BackToTop from "@/components/BackToTop";
 import WhatsAppButton from "@/components/WhatsAppButton";
@@ -27,6 +28,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <SettingsProvider>
       <AuthProvider>
       <CartProvider>
         <WishlistProvider>
@@ -56,6 +58,7 @@ const App = () => (
         </WishlistProvider>
       </CartProvider>
       </AuthProvider>
+      </SettingsProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

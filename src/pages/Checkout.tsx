@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShoppingBag, MapPin, Phone, User, CreditCard, Truck, CheckCircle2, ArrowLeft, PartyPopper, Package, AlertTriangle, Minus, Plus, Trash2, Tag, X } from "lucide-react";
 import { useOrders } from "@/contexts/OrderContext";
@@ -11,7 +11,10 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import { useCart } from "@/contexts/CartContext";
-import { products } from "@/data/products";
+import { useSettings } from "@/contexts/SettingsContext";
+import { fetchProduct, fetchProducts } from "@/api/products";
+import { validateCoupon } from "@/api/coupons";
+import type { Product } from "@/types/product";
 import { toast } from "sonner";
 
 const paymentMethods = [
@@ -21,13 +24,19 @@ const paymentMethods = [
   { id: "rocket", label: "Rocket", color: "text-[hsl(270,70%,45%)]" },
 ];
 
-const BKASH_NUMBER = "01XXXXXXXXX"; // Replace with actual bKash number
-
 const Checkout = () => {
   const navigate = useNavigate();
   const { items, subtotal, totalItems, clearCart, removeItem, updateQuantity } = useCart();
   const { addOrder } = useOrders();
+  const { settings } = useSettings();
   const [orderId, setOrderId] = useState("");
+
+  const merchantNumberFor = (method: string): string => {
+    if (method === "bkash") return settings.bkash_merchant_number;
+    if (method === "nagad") return settings.nagad_merchant_number;
+    if (method === "rocket") return settings.rocket_merchant_number;
+    return "";
+  };
 
   // Pre-fill from saved profile
   const savedProfile = (() => {
@@ -47,26 +56,75 @@ const Checkout = () => {
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number; type: "percent" | "fixed" } | null>(null);
   const [couponError, setCouponError] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
 
-  const VALID_COUPONS: Record<string, { discount: number; type: "percent" | "fixed"; minOrder?: number }> = {
-    "WELCOME10": { discount: 10, type: "percent", minOrder: 500 },
-    "SAVE50": { discount: 50, type: "fixed" },
-    "NIPUN20": { discount: 20, type: "percent", minOrder: 1000 },
-  };
+  const [productMap, setProductMap] = useState<Record<string, Product>>({});
+  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
 
-  const handleApplyCoupon = () => {
+  // Fetch full product info for cart items (to get advanceAmount)
+  useEffect(() => {
+    let cancelled = false;
+    const idsToFetch = items.map((i) => i.id).filter((id) => !productMap[id]);
+    if (idsToFetch.length === 0) return;
+    Promise.all(
+      idsToFetch.map((id) =>
+        fetchProduct(id)
+          .then((data) => (data?.product || data?.data || data) as Product)
+          .catch(() => null)
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      setProductMap((prev) => {
+        const next = { ...prev };
+        results.forEach((p) => { if (p?.id) next[String(p.id)] = p; });
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [items]);
+
+  // Fetch related products
+  useEffect(() => {
+    let cancelled = false;
+    fetchProducts({ page: 1 })
+      .then((data) => {
+        if (cancelled) return;
+        const list: Product[] = data?.data || data || [];
+        setRelatedProducts(list);
+      })
+      .catch(() => setRelatedProducts([]));
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleApplyCoupon = async () => {
     const code = couponCode.trim().toUpperCase();
     if (!code) { setCouponError("কুপন কোড লিখুন"); return; }
-    const coupon = VALID_COUPONS[code];
-    if (!coupon) { setCouponError("ভুল কুপন কোড"); return; }
-    if (coupon.minOrder && subtotal < coupon.minOrder) {
-      setCouponError(`এই কুপনের জন্য সর্বনিম্ন অর্ডার Tk ${coupon.minOrder.toLocaleString()} প্রয়োজন। আপনার বর্তমান সাবটোটাল Tk ${subtotal.toLocaleString()}। আরো Tk ${(coupon.minOrder - subtotal).toLocaleString()} যোগ করুন।`);
-      return;
-    }
-    const discountAmount = coupon.type === "percent" ? Math.round(subtotal * coupon.discount / 100) : coupon.discount;
-    setAppliedCoupon({ code, discount: discountAmount, type: coupon.type });
+    setCouponLoading(true);
     setCouponError("");
-    toast.success(`কুপন "${code}" প্রয়োগ হয়েছে! Tk ${discountAmount} ছাড়`);
+    try {
+      const res = await validateCoupon(code);
+      const coupon = res?.data || res;
+      const type: "percent" | "fixed" =
+        (coupon.discount_type || coupon.type) === "percent" ||
+        (coupon.discount_type || coupon.type) === "percentage"
+          ? "percent"
+          : "fixed";
+      const discountValue = Number(coupon.discount_value ?? coupon.discount ?? 0);
+      const minOrder = Number(coupon.min_order_amount ?? coupon.minOrder ?? 0);
+
+      if (minOrder && subtotal < minOrder) {
+        setCouponError(`এই কুপনের জন্য সর্বনিম্ন অর্ডার Tk ${minOrder.toLocaleString()} প্রয়োজন। আপনার বর্তমান সাবটোটাল Tk ${subtotal.toLocaleString()}। আরো Tk ${(minOrder - subtotal).toLocaleString()} যোগ করুন।`);
+        return;
+      }
+      const discountAmount = type === "percent" ? Math.round(subtotal * discountValue / 100) : discountValue;
+      setAppliedCoupon({ code, discount: discountAmount, type });
+      toast.success(`কুপন "${code}" প্রয়োগ হয়েছে! Tk ${discountAmount} ছাড়`);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || "ভুল কুপন কোড";
+      setCouponError(msg);
+    } finally {
+      setCouponLoading(false);
+    }
   };
 
   const removeCoupon = () => {
@@ -82,21 +140,24 @@ const Checkout = () => {
   // Calculate total advance amount required from cart items
   const totalAdvance = useMemo(() => {
     return items.reduce((sum, item) => {
-      const product = products.find((p) => p.id === item.id);
+      const product = productMap[item.id];
       if (product?.advanceAmount) {
-        return sum + product.advanceAmount * item.quantity;
+        return sum + Number(product.advanceAmount) * item.quantity;
       }
       return sum;
     }, 0);
-  }, [items]);
+  }, [items, productMap]);
 
   const hasAdvanceItems = totalAdvance > 0;
   const dueOnDelivery = total - totalAdvance;
   const isMobilePayment = ["bkash", "nagad", "rocket"].includes(paymentMethod);
 
-  // Get related products (exclude items in cart)
-  const cartIds = items.map((i) => i.id);
-  const relatedProducts = products.filter((p) => !cartIds.includes(p.id)).slice(0, 5);
+  // Filter out items already in cart from related products
+  const cartIds = useMemo(() => new Set(items.map((i) => i.id)), [items]);
+  const visibleRelated = useMemo(
+    () => relatedProducts.filter((p) => !cartIds.has(p.id)).slice(0, 5),
+    [relatedProducts, cartIds]
+  );
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -126,20 +187,41 @@ const Checkout = () => {
       toast.error("Your cart is empty");
       return;
     }
-    const id = await addOrder({
-      items: items.map((i) => ({ id: i.id, name: i.name, image: i.image, price: i.price, quantity: i.quantity })),
-      subtotal,
-      shippingCost,
-      total,
-      name,
-      phone,
-      address,
-      deliveryZone: deliveryZone as "inside" | "outside",
-      paymentMethod: paymentMethods.find((m) => m.id === paymentMethod)?.label || paymentMethod,
-    });
-    setOrderId(id);
-    setShowSuccess(true);
-    clearCart();
+
+    const apiPayload = {
+      items: items.map((i) => ({
+        product_id: Number(i.id),
+        quantity: i.quantity,
+      })),
+      shipping_name: name,
+      shipping_phone: phone,
+      shipping_address: address,
+      shipping_district: deliveryZone === "inside" ? "Dhaka" : "Other",
+      payment_method: paymentMethod,
+      ...(appliedCoupon?.code ? { coupon_code: appliedCoupon.code } : {}),
+    };
+
+    try {
+      const id = await addOrder(
+        {
+          items: items.map((i) => ({ id: i.id, name: i.name, image: i.image, price: i.price, quantity: i.quantity })),
+          subtotal,
+          shippingCost,
+          total,
+          name,
+          phone,
+          address,
+          deliveryZone: deliveryZone as "inside" | "outside",
+          paymentMethod: paymentMethods.find((m) => m.id === paymentMethod)?.label || paymentMethod,
+        },
+        apiPayload,
+      );
+      setOrderId(id);
+      setShowSuccess(true);
+      clearCart();
+    } catch (err: any) {
+      toast.error(err?.message || "Could not place order. Please try again.");
+    }
   };
 
   if (items.length === 0 && !showSuccess) {
@@ -303,7 +385,7 @@ const Checkout = () => {
                     <div className="space-y-2 text-xs text-muted-foreground">
                       <p>1. {paymentMethods.find(m => m.id === paymentMethod)?.label} অ্যাপ ওপেন করুন</p>
                       <p>2. "Send Money" সিলেক্ট করুন</p>
-                      <p>3. এই নম্বরে পাঠান: <span className="font-bold text-foreground select-all">{BKASH_NUMBER}</span></p>
+                      <p>3. এই নম্বরে পাঠান: <span className="font-bold text-foreground select-all">{merchantNumberFor(paymentMethod) || "—"}</span></p>
                       <p>4. পরিমাণ: <span className="font-bold text-primary">Tk {totalAdvance.toLocaleString()}</span></p>
                       <p>5. নিচে Transaction ID দিন</p>
                     </div>
@@ -331,7 +413,7 @@ const Checkout = () => {
                       আপনি চাইলে আগেই পেমেন্ট করতে পারেন অথবা ডেলিভারির সময় পরিশোধ করতে পারেন।
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      নম্বর: <span className="font-bold text-foreground select-all">{BKASH_NUMBER}</span>
+                      নম্বর: <span className="font-bold text-foreground select-all">{merchantNumberFor(paymentMethod) || "—"}</span>
                     </p>
                     <div>
                       <Label htmlFor="txnIdOpt" className="text-xs font-medium text-muted-foreground">Transaction ID (যদি পেমেন্ট করে থাকেন)</Label>
@@ -357,7 +439,7 @@ const Checkout = () => {
 
                 <div className="space-y-3 max-h-60 overflow-y-auto">
                   {items.map((item) => {
-                    const product = products.find((p) => p.id === item.id);
+                    const product = productMap[item.id];
                     return (
                       <div key={`${item.id}-${item.color}-${item.size}`} className="flex items-center gap-3">
                         <div className="h-14 w-14 flex-shrink-0 rounded-xl bg-muted overflow-hidden">
@@ -429,13 +511,13 @@ const Checkout = () => {
                           maxLength={20}
                           className="rounded-xl text-xs h-9"
                         />
-                        <Button type="button" variant="outline" size="sm" onClick={handleApplyCoupon} className="rounded-xl text-xs h-9 px-4 shrink-0">
-                          Apply
+                        <Button type="button" variant="outline" size="sm" onClick={handleApplyCoupon} disabled={couponLoading} className="rounded-xl text-xs h-9 px-4 shrink-0">
+                          {couponLoading ? "..." : "Apply"}
                         </Button>
                       </div>
                       {couponError && <p className="text-[11px] text-destructive mt-1.5 leading-relaxed">{couponError}</p>}
                       <p className="text-[10px] text-muted-foreground mt-1.5">
-                        ব্যবহার করুন: <span className="font-semibold text-foreground/70">WELCOME10</span> (10%, min Tk 500), <span className="font-semibold text-foreground/70">NIPUN20</span> (20%, min Tk 1,000), <span className="font-semibold text-foreground/70">SAVE50</span> (Tk 50 off)
+                        কুপন কোড থাকলে এখানে লিখুন এবং Apply তে ক্লিক করুন
                       </p>
                     </div>
                   )}
@@ -531,7 +613,7 @@ const Checkout = () => {
           <div className="px-6 pb-6">
             <h3 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 mt-2">You May Also Like</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {relatedProducts.slice(0, 3).map((p) => (
+              {visibleRelated.slice(0, 3).map((p) => (
                 <ProductCard
                   key={p.id}
                   name={p.brand}
@@ -541,7 +623,7 @@ const Checkout = () => {
                   rating={p.rating}
                   reviews={p.reviews}
                   color="bg-muted/40"
-                  image={p.images[0]}
+                  image={p.images?.[0]}
                   productId={p.id}
                   showBuyNow
                 />

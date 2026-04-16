@@ -1,8 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Percent, Clock } from "lucide-react";
 import ProductCard from "@/components/ProductCard";
-import { products as staticProducts } from "@/data/products";
+import { fetchProducts } from "@/api/products";
+import { useSettings } from "@/contexts/SettingsContext";
+import type { Product } from "@/types/product";
+
+const SkeletonCard = () => (
+  <div className="animate-pulse">
+    <div className="h-48 rounded-2xl bg-muted/60" />
+    <div className="mt-2 h-3 w-3/4 rounded bg-muted/60" />
+    <div className="mt-1.5 h-3 w-1/2 rounded bg-muted/60" />
+  </div>
+);
 
 const useCountdown = () => {
   const getTarget = () => {
@@ -34,14 +44,37 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 const SpecialOffers = () => {
   const { hours, minutes, seconds } = useCountdown();
+  const { settings } = useSettings();
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const discounted = [...staticProducts]
-    .map((p) => ({
-      ...p,
-      discount: Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100),
-    }))
-    .sort((a, b) => b.discount - a.discount)
-    .slice(0, 10);
+  useEffect(() => {
+    let cancelled = false;
+    fetchProducts({ page: 1 })
+      .then((data) => {
+        if (cancelled) return;
+        const items: Product[] = data?.data || data || [];
+        setAllProducts(items);
+      })
+      .catch(() => setAllProducts([]))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const discounted = useMemo(() => {
+    return [...allProducts]
+      .map((p) => ({
+        ...p,
+        discount: p.originalPrice > 0
+          ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100)
+          : 0,
+      }))
+      .filter((p) => p.discount > 0)
+      .sort((a, b) => b.discount - a.discount)
+      .slice(0, 10);
+  }, [allProducts]);
+
+  if (!loading && discounted.length === 0) return null;
 
   return (
     <section className="py-4 sm:py-6 md:py-8 bg-gradient-to-b from-primary/5 to-background">
@@ -52,8 +85,8 @@ const SpecialOffers = () => {
               <Percent className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-sm sm:text-lg md:text-xl font-bold text-foreground leading-tight">Special Offers</h2>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Biggest discounts across the store</p>
+              <h2 className="text-sm sm:text-lg md:text-xl font-bold text-foreground leading-tight">{settings.section_special_offers_title}</h2>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">{settings.section_special_offers_subtitle}</p>
             </div>
           </div>
 
@@ -86,20 +119,22 @@ const SpecialOffers = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {discounted.map((p) => (
-            <ProductCard
-              key={p.id}
-              name={p.brand}
-              code={p.code}
-              price={p.price}
-              originalPrice={p.originalPrice}
-              rating={p.rating}
-              reviews={p.reviews}
-              color="bg-muted/30"
-              image={p.images[0]}
-              productId={p.id}
-            />
-          ))}
+          {loading
+            ? Array.from({ length: 10 }).map((_, i) => <SkeletonCard key={i} />)
+            : discounted.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  name={p.brand}
+                  code={p.code}
+                  price={p.price}
+                  originalPrice={p.originalPrice}
+                  rating={p.rating}
+                  reviews={p.reviews || (p as any).reviewCount || 0}
+                  color="bg-muted/30"
+                  image={p.images?.[0]}
+                  productId={p.id}
+                />
+              ))}
         </div>
       </div>
     </section>

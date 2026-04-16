@@ -1,32 +1,67 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, User, Eye, EyeOff, Phone } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const location = useLocation();
+  const { login, register } = useAuth();
+
+  const redirectAfterAuth = (location.state as { from?: string } | null)?.from || "/";
+
+  const extractApiError = (err: unknown): string => {
+    const e = err as { response?: { data?: { message?: string; errors?: Record<string, string[]> } } };
+    const errors = e?.response?.data?.errors;
+    if (errors) {
+      const first = Object.values(errors)[0];
+      if (Array.isArray(first) && first[0]) return first[0];
+    }
+    return e?.response?.data?.message || "Something went wrong. Please try again.";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
+    if (!isLogin && password !== passwordConfirmation) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
     setLoading(true);
-    // Placeholder — will be connected to Laravel backend
-    setTimeout(() => {
-      toast({ title: "Coming Soon", description: "Authentication will be available soon with our backend." });
+    try {
+      if (isLogin) {
+        await login(phone, password);
+      } else {
+        await register({
+          name,
+          phone,
+          password,
+          password_confirmation: passwordConfirmation,
+          ...(email ? { email } : {}),
+        });
+      }
+      navigate(redirectAfterAuth, { replace: true });
+    } catch (err) {
+      toast.error(extractApiError(err));
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -73,8 +108,9 @@ const Auth = () => {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="pl-10 rounded-xl"
-                    placeholder="+880 1XXX-XXXXXX"
+                    placeholder="01XXXXXXXXX"
                     required
+                    autoComplete={isLogin ? "username" : "tel"}
                   />
                 </div>
               </div>
@@ -91,6 +127,7 @@ const Auth = () => {
                     placeholder="Min 6 characters"
                     required
                     minLength={6}
+                    autoComplete={isLogin ? "current-password" : "new-password"}
                   />
                   <button
                     type="button"
@@ -103,19 +140,39 @@ const Auth = () => {
               </div>
 
               {!isLogin && (
-                <div>
-                  <Label className="text-xs text-muted-foreground">Email (Optional)</Label>
-                  <div className="relative mt-1">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 rounded-xl"
-                      placeholder="you@example.com"
-                    />
+                <>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Confirm Password</Label>
+                    <div className="relative mt-1">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={passwordConfirmation}
+                        onChange={(e) => setPasswordConfirmation(e.target.value)}
+                        className="pl-10 rounded-xl"
+                        placeholder="Repeat password"
+                        required={!isLogin}
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
+                    </div>
                   </div>
-                </div>
+
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Email (Optional)</Label>
+                    <div className="relative mt-1">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="pl-10 rounded-xl"
+                        placeholder="you@example.com"
+                        autoComplete="email"
+                      />
+                    </div>
+                  </div>
+                </>
               )}
 
               <Button type="submit" className="w-full rounded-xl h-11" disabled={loading}>
@@ -127,6 +184,7 @@ const Auth = () => {
               <p className="text-sm text-muted-foreground">
                 {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
                 <button
+                  type="button"
                   onClick={() => setIsLogin(!isLogin)}
                   className="font-semibold text-primary hover:text-primary/80 transition-colors"
                 >
